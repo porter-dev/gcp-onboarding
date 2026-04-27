@@ -9,6 +9,12 @@
 #   PORTER_AWS_ACCOUNT_ID        $3
 #   PORTER_AWS_ROLE_NAME         $4 (optional, default: porter-ccp)
 #
+# Required environment variables (set by Porter via the Cloud Shell deeplink):
+#   PORTER_INTEGRATION_ID        UUID of the cloud_account row
+#   PORTER_VERIFICATION_TOKEN    Single-use bearer token for the bootstrap callback
+#   PORTER_API_URL               Base URL of the Porter API (e.g. https://api.porter.run)
+#   PORTER_PROJECT_ID_NUMERIC    Porter project ID (integer; distinct from PORTER_PROJECT_ID which is the GCP project)
+#
 set -euo pipefail
 
 readonly script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -82,43 +88,62 @@ run_terraform() {
   popd >/dev/null
 }
 
-print_outputs() {
-  pushd "${script_dir}" >/dev/null
-
-  local provider email
-  provider=$(terraform output -raw workload_identity_provider)
-  email=$(terraform output -raw service_account_email)
-
+print_done() {
   cat <<DONE
 
 ================================================================
-Porter is now connected to project ${project_id}.
+Bootstrap complete.
 
-Copy the two values below back into Porter:
+Porter is now polling for federation in your dashboard. It will:
+  1. Detect that federation works (a few seconds).
+  2. Enable the remaining GCP APIs server-side.
+  3. Grant the remaining IAM roles to porter-manager.
+  4. Advance the dashboard to 100%.
 
-  Workload Identity Provider:
-  ${provider}
-
-  Service Account Email:
-  ${email}
+You can close this tab now.
 ================================================================
 
 DONE
+}
 
-  popd >/dev/null
+notify_porter() {
+  if [[ -z ${PORTER_API_URL:-} || -z ${PORTER_INTEGRATION_ID:-} || -z ${PORTER_VERIFICATION_TOKEN:-} || -z ${PORTER_PROJECT_ID_NUMERIC:-} ]]; then
+    echo "warning: Porter callback env vars not set; skipping bootstrap callback." >&2
+    echo "  Polling will stay at 0% until the project number is delivered." >&2
+    return
+  fi
+
+  local project_number
+  project_number=$(gcloud projects describe "${project_id}" --format='value(projectNumber)')
+  if [[ -z $project_number ]]; then
+    echo "error: failed to look up project number for ${project_id}" >&2
+    exit 3
+  fi
+
+  local payload
+  payload=$(cat <<JSON
+{"porter_project_id":${PORTER_PROJECT_ID_NUMERIC},"gcp_project_number":"${project_number}","verification_token":"${PORTER_VERIFICATION_TOKEN}"}
+JSON
+)
+
+  local url="${PORTER_API_URL%/}/api/v2/integrations/gcp/wif/${PORTER_INTEGRATION_ID}/bootstrap"
+  echo "Notifying Porter at ${url}..."
+  curl -sSf -X POST -H 'Content-Type: application/json' -d "${payload}" "${url}" >/dev/null
 }
 
 main() {
   resolve_args "$@"
   require_tool gcloud
   require_tool terraform
+  require_tool curl
 
   local bucket="porter-tfstate-${project_id}"
   local prefix="gcp-onboarding/${tenant_external_id}"
 
   ensure_state_bucket "${bucket}"
   run_terraform "${bucket}" "${prefix}"
-  print_outputs
+  notify_porter
+  print_done
 }
 
 main "$@"

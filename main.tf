@@ -1,27 +1,26 @@
 locals {
-  required_apis = [
+  # APIs required for federation itself plus the IAM/Service Usage admin
+  # surface. Everything else (compute, container, artifact registry, etc.)
+  # is enabled by Porter's backend after federation is verified, so the
+  # customer's Cloud Shell apply stays small and fast.
+  bootstrap_apis = [
     "serviceusage.googleapis.com",
     "cloudresourcemanager.googleapis.com",
     "iam.googleapis.com",
     "iamcredentials.googleapis.com",
     "sts.googleapis.com",
-    "compute.googleapis.com",
-    "container.googleapis.com",
-    "containerregistry.googleapis.com",
-    "artifactregistry.googleapis.com",
-    "secretmanager.googleapis.com",
   ]
 
-  service_account_roles = [
-    "roles/storage.admin",
-    "roles/compute.admin",
-    "roles/container.admin",
-    "roles/iam.serviceAccountAdmin",
-    "roles/iam.serviceAccountUser",
-    "roles/artifactregistry.admin",
-    "roles/secretmanager.admin",
-    "roles/resourcemanager.projectIamAdmin",
+  # Bootstrap roles only. These give porter-manager just enough authority
+  # to enable the remaining APIs and grant itself the heavier roles
+  # (compute.admin, container.admin, artifactregistry.admin, etc.) from
+  # Porter's backend post-onboarding. Mirrors the AWS pattern where the
+  # CloudFormation stack creates a single porter-access-manager role and
+  # Porter's CCP creates everything else.
+  bootstrap_roles = [
     "roles/serviceusage.serviceUsageAdmin",
+    "roles/resourcemanager.projectIamAdmin",
+    "roles/iam.serviceAccountAdmin",
   ]
 
   resource_labels = merge(var.labels, {
@@ -33,8 +32,8 @@ data "google_project" "target" {
   project_id = var.project_id
 }
 
-resource "google_project_service" "required" {
-  for_each = toset(local.required_apis)
+resource "google_project_service" "bootstrap" {
+  for_each = toset(local.bootstrap_apis)
 
   project            = var.project_id
   service            = each.value
@@ -47,11 +46,11 @@ resource "google_service_account" "porter_manager" {
   display_name = var.service_account_display_name
   description  = "Impersonated by Porter via Workload Identity Federation. Managed by porter-dev/gcp-onboarding."
 
-  depends_on = [google_project_service.required]
+  depends_on = [google_project_service.bootstrap]
 }
 
-resource "google_project_iam_member" "porter_manager" {
-  for_each = toset(local.service_account_roles)
+resource "google_project_iam_member" "porter_manager_bootstrap" {
+  for_each = toset(local.bootstrap_roles)
 
   project = var.project_id
   role    = each.value
@@ -64,7 +63,7 @@ resource "google_iam_workload_identity_pool" "porter" {
   display_name              = "Porter"
   description               = "Pool used by Porter to access this project without long-lived service account keys."
 
-  depends_on = [google_project_service.required]
+  depends_on = [google_project_service.bootstrap]
 }
 
 resource "google_iam_workload_identity_pool_provider" "porter_aws" {
