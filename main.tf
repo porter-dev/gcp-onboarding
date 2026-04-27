@@ -23,8 +23,15 @@ locals {
     "roles/iam.serviceAccountAdmin",
   ]
 
+  # Per-Porter-project resource names so the same GCP project can be
+  # linked to multiple Porter projects without collision. Pool ID and
+  # SA ID are derived if the variables are left empty.
+  pool_id            = var.pool_id != "" ? var.pool_id : "porter-pool-${var.porter_project_id}"
+  service_account_id = var.service_account_id != "" ? var.service_account_id : "porter-manager-${var.porter_project_id}"
+
   resource_labels = merge(var.labels, {
-    porter-tenant-id = var.tenant_external_id
+    porter-project-id = var.porter_project_id
+    porter-tenant-id  = var.tenant_external_id
   })
 }
 
@@ -42,9 +49,9 @@ resource "google_project_service" "bootstrap" {
 
 resource "google_service_account" "porter_manager" {
   project      = var.project_id
-  account_id   = var.service_account_id
+  account_id   = local.service_account_id
   display_name = var.service_account_display_name
-  description  = "Impersonated by Porter via Workload Identity Federation. Managed by porter-dev/gcp-onboarding."
+  description  = "Impersonated by Porter via Workload Identity Federation. Managed by porter-dev/gcp-onboarding for Porter project ${var.porter_project_id}."
 
   depends_on = [google_project_service.bootstrap]
 }
@@ -59,9 +66,9 @@ resource "google_project_iam_member" "porter_manager_bootstrap" {
 
 resource "google_iam_workload_identity_pool" "porter" {
   project                   = var.project_id
-  workload_identity_pool_id = var.pool_id
-  display_name              = "Porter"
-  description               = "Pool used by Porter to access this project without long-lived service account keys."
+  workload_identity_pool_id = local.pool_id
+  display_name              = "Porter (project ${var.porter_project_id})"
+  description               = "Pool used by Porter project ${var.porter_project_id} to access this GCP project without long-lived service account keys."
 
   depends_on = [google_project_service.bootstrap]
 }

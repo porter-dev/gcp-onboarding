@@ -41,12 +41,14 @@ fetch_details() {
   local response
   response=$(curl -sSf -X POST -H 'Content-Type: application/json' -d "${payload}" "${url}")
 
+  porter_project_id=$(jq -r '.porter_project_id' <<<"${response}")
   gcp_project_id=$(jq -r '.gcp_project_id' <<<"${response}")
   tenant_external_id=$(jq -r '.tenant_external_id' <<<"${response}")
   porter_aws_account_id=$(jq -r '.porter_aws_account_id' <<<"${response}")
   porter_aws_role_name=$(jq -r '.porter_aws_role_name' <<<"${response}")
 
-  if [[ -z $gcp_project_id || $gcp_project_id == null ||
+  if [[ -z $porter_project_id || $porter_project_id == null ||
+        -z $gcp_project_id || $gcp_project_id == null ||
         -z $tenant_external_id || $tenant_external_id == null ||
         -z $porter_aws_account_id || $porter_aws_account_id == null ||
         -z $porter_aws_role_name || $porter_aws_role_name == null ]]; then
@@ -90,6 +92,7 @@ run_terraform() {
     -auto-approve \
     -var "project_id=${gcp_project_id}" \
     -var "tenant_external_id=${tenant_external_id}" \
+    -var "porter_project_id=${porter_project_id}" \
     -var "porter_aws_account_id=${porter_aws_account_id}" \
     -var "porter_aws_role_name=${porter_aws_role_name}"
 
@@ -104,9 +107,24 @@ notify_porter() {
     exit 4
   fi
 
+  pushd "${script_dir}" >/dev/null
+  local sa_email wif_provider
+  sa_email=$(terraform output -raw service_account_email)
+  wif_provider=$(terraform output -raw workload_identity_provider)
+  popd >/dev/null
+
+  if [[ -z $sa_email || -z $wif_provider ]]; then
+    echo "error: terraform outputs missing service_account_email or workload_identity_provider" >&2
+    exit 5
+  fi
+
   local payload
-  payload=$(printf '{"verification_token":"%s","gcp_project_number":"%s"}' \
-    "${PORTER_VERIFICATION_TOKEN}" "${project_number}")
+  payload=$(jq -nc \
+    --arg token "${PORTER_VERIFICATION_TOKEN}" \
+    --arg pn "${project_number}" \
+    --arg email "${sa_email}" \
+    --arg provider "${wif_provider}" \
+    '{verification_token:$token, gcp_project_number:$pn, gcp_service_account_email:$email, workload_identity_provider:$provider}')
 
   local url="${PORTER_API_URL%/}/api/v2/integrations/gcp/wif/${PORTER_INTEGRATION_ID}/bootstrap"
   echo "Notifying Porter at ${url}..."

@@ -18,6 +18,16 @@ variable "tenant_external_id" {
   }
 }
 
+variable "porter_project_id" {
+  description = "Porter project ID this integration belongs to. Embedded in resource names (porter-manager-<id>, porter-pool-<id>) and labels so the same GCP project can be safely linked to multiple Porter projects without collisions."
+  type        = string
+
+  validation {
+    condition     = can(regex("^[0-9]{1,15}$", var.porter_project_id))
+    error_message = "porter_project_id must be a numeric Porter project ID (max 15 digits)."
+  }
+}
+
 variable "porter_aws_account_id" {
   description = "The 12-digit AWS account ID Porter's cluster control plane runs in. The Workload Identity provider will only trust assumed-role sessions originating from this account."
   type        = string
@@ -40,9 +50,9 @@ variable "porter_aws_role_name" {
 }
 
 variable "pool_id" {
-  description = "Workload Identity Pool ID."
+  description = "Workload Identity Pool ID. Defaults to 'porter-pool-<porter_project_id>' so multiple Porter projects can share a single GCP project without collision. Override only if you need to re-key an existing onboarding."
   type        = string
-  default     = "porter-pool"
+  default     = ""
 }
 
 variable "provider_id" {
@@ -52,9 +62,9 @@ variable "provider_id" {
 }
 
 variable "service_account_id" {
-  description = "Service account ID Porter will impersonate."
+  description = "Service account ID Porter will impersonate. Defaults to 'porter-manager-<porter_project_id>' so multiple Porter projects can share a single GCP project without collision."
   type        = string
-  default     = "porter-manager"
+  default     = ""
 }
 
 variable "service_account_display_name" {
