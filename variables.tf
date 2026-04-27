@@ -19,12 +19,22 @@ variable "tenant_external_id" {
 }
 
 variable "porter_project_id" {
-  description = "Porter project ID this integration belongs to. Embedded in resource names (porter-manager-<id>, porter-pool-<id>) and labels so the same GCP project can be safely linked to multiple Porter projects without collisions."
+  description = "Porter project ID this integration belongs to. Embedded in resource names so the same GCP project can be safely linked to multiple Porter projects without collisions."
   type        = string
 
   validation {
-    condition     = can(regex("^[0-9]{1,15}$", var.porter_project_id))
-    error_message = "porter_project_id must be a numeric Porter project ID (max 15 digits)."
+    condition     = can(regex("^[0-9]{1,10}$", var.porter_project_id))
+    error_message = "porter_project_id must be a numeric Porter project ID (max 10 digits, to leave room for the 4-hex resource suffix within the GCP service account 30-char name limit)."
+  }
+}
+
+variable "resource_suffix" {
+  description = "Per-integration random suffix Porter generates at initiate time. Embedded in pool and SA names so retries after a destroy don't collide with GCP's 30-day soft-deleted siblings of the prior onboarding."
+  type        = string
+
+  validation {
+    condition     = can(regex("^[a-f0-9]{4}$", var.resource_suffix))
+    error_message = "resource_suffix must be exactly 4 lowercase hex characters."
   }
 }
 

@@ -23,11 +23,15 @@ locals {
     "roles/iam.serviceAccountAdmin",
   ]
 
-  # Per-Porter-project resource names so the same GCP project can be
-  # linked to multiple Porter projects without collision. Pool ID and
-  # SA ID are derived if the variables are left empty.
-  pool_id            = var.pool_id != "" ? var.pool_id : "porter-pool-${var.porter_project_id}"
-  service_account_id = var.service_account_id != "" ? var.service_account_id : "porter-manager-${var.porter_project_id}"
+  # Per-Porter-project resource names with a server-generated suffix
+  # (Porter generates the 4-hex suffix at initiate time and surfaces it
+  # via the /details response). The backend owning the suffix means the
+  # integration's identity is fully tracked Porter-side: re-initiate of
+  # the same row passes the same suffix → terraform reuses existing
+  # resources; a fresh row gets a fresh suffix → no collision with the
+  # 30-day soft-deleted siblings of a prior teardown.
+  pool_id            = var.pool_id != "" ? var.pool_id : "porter-pool-${var.porter_project_id}-${var.resource_suffix}"
+  service_account_id = var.service_account_id != "" ? var.service_account_id : "porter-manager-${var.porter_project_id}-${var.resource_suffix}"
 
   resource_labels = merge(var.labels, {
     porter-project-id = var.porter_project_id
