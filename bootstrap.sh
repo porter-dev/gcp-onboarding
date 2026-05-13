@@ -44,20 +44,20 @@ fetch_details() {
   porter_project_id=$(jq -r '.porter_project_id' <<<"${response}")
   gcp_project_id=$(jq -r '.gcp_project_id' <<<"${response}")
   tenant_external_id=$(jq -r '.tenant_external_id' <<<"${response}")
-  resource_suffix=$(jq -r '.resource_suffix' <<<"${response}")
   porter_aws_account_id=$(jq -r '.porter_aws_account_id' <<<"${response}")
   porter_aws_role_name=$(jq -r '.porter_aws_role_name' <<<"${response}")
 
   if [[ -z $porter_project_id || $porter_project_id == null ||
         -z $gcp_project_id || $gcp_project_id == null ||
         -z $tenant_external_id || $tenant_external_id == null ||
-        -z $resource_suffix || $resource_suffix == null ||
         -z $porter_aws_account_id || $porter_aws_account_id == null ||
         -z $porter_aws_role_name || $porter_aws_role_name == null ]]; then
     echo "error: Porter /details response missing required fields" >&2
     echo "  raw response: ${response}" >&2
     exit 3
   fi
+
+  resource_suffix="${tenant_external_id:0:8}"
 }
 
 ensure_state_bucket() {
