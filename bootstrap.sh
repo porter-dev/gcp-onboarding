@@ -57,7 +57,7 @@ fetch_details() {
     exit 3
   fi
 
-  resource_suffix="${tenant_external_id:0:8}"
+  resource_suffix="${tenant_external_id:0:4}"
 }
 
 ensure_state_bucket() {
