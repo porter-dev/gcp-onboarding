@@ -103,5 +103,11 @@ resource "google_iam_workload_identity_pool_provider" "porter_aws" {
 resource "google_service_account_iam_member" "porter_impersonation" {
   service_account_id = google_service_account.porter_manager.name
   role               = "roles/iam.workloadIdentityUser"
-  member             = "principalSet://iam.googleapis.com/${google_iam_workload_identity_pool.porter.name}/attribute.aws_account/${var.porter_aws_account_id}"
+
+  # GCP IAM principalSet paths must use the project NUMBER, not the
+  # project ID. The federated principal's actual identity always uses
+  # the numeric form, and a binding written with the project ID never
+  # matches it (manifests as 403 PERMISSION_DENIED on
+  # iam.serviceAccounts.getAccessToken at federation time).
+  member = "principalSet://iam.googleapis.com/projects/${data.google_project.target.number}/locations/global/workloadIdentityPools/${google_iam_workload_identity_pool.porter.workload_identity_pool_id}/attribute.aws_account/${var.porter_aws_account_id}"
 }

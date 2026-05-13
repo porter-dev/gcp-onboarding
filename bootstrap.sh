@@ -8,7 +8,7 @@
 # setup command:
 #
 #   PORTER_API_URL              Base URL of the Porter API
-#   PORTER_INTEGRATION_ID       UUID of the cloud_account row
+#   PORTER_CLOUD_ACCOUNT_ID     UUID of the cloud_account row
 #   PORTER_VERIFICATION_TOKEN   Single-use bearer token, validated by
 #                               hash, consumed at the bootstrap callback
 #
@@ -34,7 +34,7 @@ require_env() {
 }
 
 fetch_details() {
-  local url="${PORTER_API_URL%/}/api/v2/integrations/gcp/wif/${PORTER_INTEGRATION_ID}/details"
+  local url="${PORTER_API_URL%/}/api/v2/clouds/gcp/${PORTER_CLOUD_ACCOUNT_ID}/details"
   local payload
   payload=$(printf '{"verification_token":"%s"}' "${PORTER_VERIFICATION_TOKEN}")
 
@@ -83,13 +83,13 @@ run_terraform() {
 
   pushd "${script_dir}" >/dev/null
 
-  terraform init \
+  "${TF_BIN:-terraform}" init \
     -input=false \
     -reconfigure \
     -backend-config="bucket=${bucket}" \
     -backend-config="prefix=${prefix}"
 
-  terraform apply \
+  "${TF_BIN:-terraform}" apply \
     -input=false \
     -auto-approve \
     -var "project_id=${gcp_project_id}" \
@@ -112,8 +112,8 @@ notify_porter() {
 
   pushd "${script_dir}" >/dev/null
   local sa_email wif_provider
-  sa_email=$(terraform output -raw service_account_email)
-  wif_provider=$(terraform output -raw workload_identity_provider)
+  sa_email=$("${TF_BIN:-terraform}" output -raw service_account_email)
+  wif_provider=$("${TF_BIN:-terraform}" output -raw workload_identity_provider)
   popd >/dev/null
 
   if [[ -z $sa_email || -z $wif_provider ]]; then
@@ -129,7 +129,7 @@ notify_porter() {
     --arg provider "${wif_provider}" \
     '{verification_token:$token, gcp_project_number:$pn, gcp_service_account_email:$email, workload_identity_provider:$provider}')
 
-  local url="${PORTER_API_URL%/}/api/v2/integrations/gcp/wif/${PORTER_INTEGRATION_ID}/bootstrap"
+  local url="${PORTER_API_URL%/}/api/v2/clouds/gcp/${PORTER_CLOUD_ACCOUNT_ID}/bootstrap"
   echo "Notifying Porter at ${url}..."
   curl -sSf -X POST -H 'Content-Type: application/json' -d "${payload}" "${url}" >/dev/null
 }
@@ -154,11 +154,11 @@ DONE
 
 main() {
   require_env PORTER_API_URL
-  require_env PORTER_INTEGRATION_ID
+  require_env PORTER_CLOUD_ACCOUNT_ID
   require_env PORTER_VERIFICATION_TOKEN
 
   require_tool gcloud
-  require_tool terraform
+  require_tool "${TF_BIN:-terraform}"
   require_tool curl
   require_tool jq
 
