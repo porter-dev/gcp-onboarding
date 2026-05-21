@@ -44,7 +44,7 @@ jobs:
         with:
           severity: warning
           scandir: "./"
-          additional_files: "bootstrap.sh revoke.sh"
+          additional_files: "bootstrap.sh"
 
   markdown:
     runs-on: ubuntu-latest

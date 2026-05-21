@@ -83,15 +83,14 @@ bootstrap script printing "Bootstrap complete.", just re-run the script
 [troubleshooting in the README](https://github.com/porter-dev/gcp-onboarding#troubleshooting)
 if the re-run still doesn't move things along.
 
-## Revocation
+## Revoking later
 
-To remove Porter's access later:
-
-- In Porter: **Integrations → Google Cloud → Revoke**. This opens a Cloud
-  Shell tutorial that runs `terraform destroy` against the same state.
-- Or directly: delete the `porter-pool-*` Workload Identity Pool in
-  **IAM & Admin → Workload Identity Federation**. That single action
-  invalidates all federated tokens immediately.
+There is no in-dashboard revoke action today. To disconnect Porter
+later, delete the `porter-pool-*` Workload Identity Pool in **IAM & Admin
+→ Workload Identity Federation** (this invalidates all federated tokens
+immediately) and then delete the cloud account in Porter under
+**Integrations → Cloud accounts**. Full instructions are in
+[the README's *Revoking access* section](https://github.com/porter-dev/gcp-onboarding#revoking-access).
 
 <walkthrough-conclusion-trophy></walkthrough-conclusion-trophy>
 

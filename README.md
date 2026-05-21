@@ -113,9 +113,8 @@ export PORTER_VERIFICATION_TOKEN=<single-use-token-from-porter-dashboard>
 ./bootstrap.sh
 ```
 
-To revoke later, the dashboard's **Revoke** button opens an equivalent
-Cloud Shell flow that runs `revoke.sh`. See `revoke.md` for the manual
-invocation.
+See *Revoking access* below for how to disconnect later — it's a manual
+procedure today, not a dashboard action.
 
 ## Required permissions
 
@@ -131,6 +130,42 @@ roles on the target project:
 
 `roles/owner` covers all of these. Most customer-side Porter installers
 have project owner already.
+
+## Revoking access
+
+There is no in-dashboard revoke action today. To disconnect Porter, do
+both of the following:
+
+1. **GCP side: delete the resources.** The fastest, most decisive cut is
+   to delete the `porter-pool-*` Workload Identity Pool in the GCP
+   console under **IAM & Admin → Workload Identity Federation**. That
+   single action invalidates all federated tokens immediately. You can
+   also delete the `porter-manager-*` service account afterward to clean
+   up. Federated tokens already issued continue to work until they
+   expire (≤1 hour); deleting the pool prevents new ones.
+
+   Or, if you cloned this repo and want a clean `terraform destroy`, run
+   it with the values you used at onboarding (you'll need to know your
+   GCP project ID, Porter project ID, cloud_account UUID, tenant
+   external ID, and Porter's AWS account ID — the last is published in
+   our docs):
+
+   ```bash
+   terraform init -backend-config="bucket=porter-tfstate-<gcp-project>" \
+                  -backend-config="prefix=gcp-onboarding/<cloud-account-uuid>"
+   terraform destroy \
+     -var "project_id=<gcp-project>" \
+     -var "porter_project_id=<porter-project>" \
+     -var "cloud_account_id=<cloud-account-uuid>" \
+     -var "resource_suffix=<first-4-hex-of-cloud-account-uuid>" \
+     -var "tenant_external_id=<tenant-external-id>" \
+     -var "porter_aws_account_id=<porter-aws-account-id>"
+   ```
+
+2. **Porter side: delete the cloud account row.** Removing the GCP
+   resources stops Porter's federation but doesn't remove the
+   integration from the dashboard. Delete the cloud account in
+   **Integrations → Cloud accounts** to finish the cleanup.
 
 ## Versioning
 
