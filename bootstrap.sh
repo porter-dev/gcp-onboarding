@@ -57,7 +57,14 @@ fetch_details() {
     exit 3
   fi
 
-  resource_suffix="${tenant_external_id:0:4}"
+  # Derive the resource suffix from PORTER_CLOUD_ACCOUNT_ID, not from
+  # tenant_external_id. tenant_external_id rotates per integration; the
+  # cloud_account UUID is stable across retries of the same migration —
+  # so the pool/SA names stay stable and a re-run of bootstrap.sh after
+  # a partial failure reuses the same terraform state instead of leaving
+  # orphan resources behind.
+  cloud_account_id_lc=$(printf '%s' "${PORTER_CLOUD_ACCOUNT_ID}" | tr '[:upper:]' '[:lower:]')
+  resource_suffix="${cloud_account_id_lc:0:4}"
 }
 
 ensure_state_bucket() {
@@ -95,6 +102,7 @@ run_terraform() {
     -var "project_id=${gcp_project_id}" \
     -var "tenant_external_id=${tenant_external_id}" \
     -var "porter_project_id=${porter_project_id}" \
+    -var "cloud_account_id=${cloud_account_id_lc}" \
     -var "resource_suffix=${resource_suffix}" \
     -var "porter_aws_account_id=${porter_aws_account_id}" \
     -var "porter_aws_role_name=${porter_aws_role_name}"
@@ -131,7 +139,35 @@ notify_porter() {
 
   local url="${PORTER_API_URL%/}/api/v2/clouds/gcp/${PORTER_CLOUD_ACCOUNT_ID}/bootstrap"
   echo "Notifying Porter at ${url}..."
-  curl -sSf -X POST -H 'Content-Type: application/json' -d "${payload}" "${url}" >/dev/null
+
+  # Capture body + status code separately so we can treat a previously-
+  # consumed verification token as success. That makes the whole script
+  # genuinely idempotent: a re-run after the dashboard already accepted
+  # the callback (e.g., the customer didn't notice the first run finished
+  # cleanly) is a no-op rather than a confusing curl failure.
+  local response_file
+  response_file=$(mktemp)
+  local status
+  status=$(curl -sS -o "${response_file}" -w '%{http_code}' \
+    -X POST -H 'Content-Type: application/json' -d "${payload}" "${url}" || echo 000)
+
+  if [[ $status == "200" || $status == "204" ]]; then
+    rm -f "${response_file}"
+    return
+  fi
+
+  local body
+  body=$(cat "${response_file}")
+  rm -f "${response_file}"
+
+  if grep -qiE "already[ _-]?consumed" <<<"${body}"; then
+    echo "Porter already accepted this bootstrap callback. Treating as success."
+    return
+  fi
+
+  echo "error: bootstrap callback failed (HTTP ${status})" >&2
+  echo "  body: ${body}" >&2
+  exit 6
 }
 
 print_done() {
@@ -140,11 +176,16 @@ print_done() {
 ================================================================
 Bootstrap complete.
 
-Porter is now polling for federation in your dashboard. It will:
-  1. Detect that federation works (a few seconds).
-  2. Enable the remaining GCP APIs server-side.
-  3. Grant the remaining IAM roles to porter-manager.
-  4. Advance the dashboard to 100%.
+Porter has been notified. The dashboard is polling for federation
+and will update on its own — it shows a status line like
+"Provisioning WIF permissions (NN%)..." while Porter enables the
+remaining APIs server-side and grants the heavier IAM roles to
+porter-manager. When the cloud account is marked connected, the
+dialog closes automatically.
+
+If the dashboard doesn't update within ~30 seconds, re-run this
+script — it's idempotent and resumes from the existing terraform
+state in GCS.
 
 You can close this tab now.
 ================================================================
@@ -165,7 +206,9 @@ main() {
   fetch_details
 
   local bucket="porter-tfstate-${gcp_project_id}"
-  local prefix="gcp-onboarding/${tenant_external_id}"
+  # State prefix is keyed on cloud_account_id (not tenant_external_id) so a
+  # retry of the same migration finds the same state and resumes idempotently.
+  local prefix="gcp-onboarding/${cloud_account_id_lc}"
 
   ensure_state_bucket "${bucket}"
   run_terraform "${bucket}" "${prefix}"

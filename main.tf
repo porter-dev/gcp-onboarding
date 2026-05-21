@@ -23,20 +23,20 @@ locals {
     "roles/iam.serviceAccountAdmin",
   ]
 
-  # Per-Porter-project resource names with a server-generated suffix
-  # (Porter generates the 4-hex suffix at initiate time and surfaces it
-  # via the /details response). The backend owning the suffix means the
-  # integration's identity is fully tracked Porter-side: re-initiate of
-  # the same row passes the same suffix → terraform reuses existing
-  # resources; a fresh row gets a fresh suffix → no collision with the
-  # 30-day soft-deleted siblings of a prior teardown.
+  # Resource names are stable per cloud_account_id: the suffix is derived
+  # from its first 4 hex chars (see bootstrap.sh). Re-running the script
+  # against the same cloud_account reuses the same pool and SA names so
+  # terraform picks up where a partially-completed prior attempt left
+  # off; a fresh cloud_account gets a fresh suffix, avoiding collisions
+  # with the 30-day soft-deleted siblings of a prior teardown.
   pool_id            = var.pool_id != "" ? var.pool_id : "porter-pool-${var.porter_project_id}-${var.resource_suffix}"
   service_account_id = var.service_account_id != "" ? var.service_account_id : "porter-manager-${var.porter_project_id}-${var.resource_suffix}"
 
-  resource_labels = merge(var.labels, {
-    porter-project-id = var.porter_project_id
-    porter-tenant-id  = var.tenant_external_id
-  })
+  # GCP IAM resources (service accounts, workload identity pools, pool
+  # providers) don't accept labels. Description is the only field that
+  # round-trips through `gcloud ... describe`, so we encode the
+  # full Porter ownership tuple there for asset-inventory traceability.
+  ownership_tag = "managed-by=porter porter-project-id=${var.porter_project_id} porter-cloud-account-id=${var.cloud_account_id} porter-tenant-id=${var.tenant_external_id}"
 }
 
 data "google_project" "target" {
@@ -55,7 +55,7 @@ resource "google_service_account" "porter_manager" {
   project      = var.project_id
   account_id   = local.service_account_id
   display_name = var.service_account_display_name
-  description  = "Impersonated by Porter via Workload Identity Federation. Managed by porter-dev/gcp-onboarding for Porter project ${var.porter_project_id}."
+  description  = "Impersonated by Porter via Workload Identity Federation. Managed by porter-dev/gcp-onboarding. ${local.ownership_tag}"
 
   depends_on = [google_project_service.bootstrap]
 }
@@ -72,7 +72,7 @@ resource "google_iam_workload_identity_pool" "porter" {
   project                   = var.project_id
   workload_identity_pool_id = local.pool_id
   display_name              = "Porter (project ${var.porter_project_id})"
-  description               = "Pool used by Porter project ${var.porter_project_id} to access this GCP project without long-lived service account keys."
+  description               = "Federation pool minted by porter-dev/gcp-onboarding. ${local.ownership_tag}"
 
   depends_on = [google_project_service.bootstrap]
 }
@@ -82,7 +82,7 @@ resource "google_iam_workload_identity_pool_provider" "porter_aws" {
   workload_identity_pool_id          = google_iam_workload_identity_pool.porter.workload_identity_pool_id
   workload_identity_pool_provider_id = var.provider_id
   display_name                       = "Porter (AWS)"
-  description                        = "Trusts Porter's cluster control plane IAM role and pins access to this tenant by external ID."
+  description                        = "Trusts Porter's cluster control plane IAM role and pins access to this tenant by external ID. ${local.ownership_tag}"
 
   aws {
     account_id = var.porter_aws_account_id

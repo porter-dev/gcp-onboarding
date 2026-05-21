@@ -28,8 +28,18 @@ variable "porter_project_id" {
   }
 }
 
+variable "cloud_account_id" {
+  description = "UUID of the Porter cloud_account row this integration corresponds to. Drives the resource suffix (first 4 hex chars) and is embedded in every resource's description field for asset-inventory traceability — GCP IAM resources don't support labels, so the description is our only stamp."
+  type        = string
+
+  validation {
+    condition     = can(regex("^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$", var.cloud_account_id))
+    error_message = "cloud_account_id must be a lowercase UUID."
+  }
+}
+
 variable "resource_suffix" {
-  description = "Per-integration random suffix Porter generates at initiate time. Embedded in pool and SA names so retries after a destroy don't collide with GCP's 30-day soft-deleted siblings of the prior onboarding."
+  description = "4-hex suffix derived from cloud_account_id. Stable per cloud_account row, so retries of the same migration reuse the same pool and service account names — terraform sees existing state and resumes idempotently. A fresh cloud_account row gets a fresh suffix, preventing collisions with the 30-day soft-deleted siblings of a prior teardown."
   type        = string
 
   validation {
@@ -83,10 +93,3 @@ variable "service_account_display_name" {
   default     = "Porter Manager"
 }
 
-variable "labels" {
-  description = "Labels applied to all label-able resources for asset-inventory discovery."
-  type        = map(string)
-  default = {
-    managed-by = "porter"
-  }
-}
