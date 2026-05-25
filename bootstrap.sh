@@ -12,9 +12,108 @@
 #   PORTER_VERIFICATION_TOKEN   Single-use bearer token, validated by
 #                               hash, consumed at the bootstrap callback
 #
+# Required IAM permissions on the GCP project (granted to the user
+# running this script, NOT to porter-manager — porter-manager doesn't
+# exist yet at this point):
+#
+#   - storage.buckets.create               creates the Terraform state bucket
+#   - storage.objects.create               writes Terraform state objects + lockfile
+#   - storage.objects.delete               releases the lockfile, manages state versions
+#   - serviceusage.services.enable         enables the bootstrap APIs
+#   - iam.serviceAccounts.create           creates the porter-manager-* service account
+#   - iam.workloadIdentityPools.create     creates the federation pool and provider
+#   - resourcemanager.projects.setIamPolicy   grants bootstrap roles to porter-manager-*
+#
+# roles/owner covers all of these. Otherwise, the project owner can
+# grant them à la carte, or grant this convenience set which collectively
+# covers the list:
+#
+#   roles/storage.admin
+#   roles/serviceusage.serviceUsageAdmin
+#   roles/iam.serviceAccountAdmin
+#   roles/iam.workloadIdentityPoolAdmin
+#   roles/resourcemanager.projectIamAdmin
+#
 set -euo pipefail
 
 readonly script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+
+# err_log captures stderr from every command in this script. on_failure
+# greps it for the specific GCP permission that was denied (when one was)
+# so the customer sees the exact missing permission, not just a generic
+# "ask for owner" message.
+readonly err_log=$(mktemp -t porter-bootstrap-err.XXXXXX)
+trap 'rm -f "${err_log}"' EXIT
+exec 2> >(tee -a "${err_log}" >&2)
+
+print_required_permissions() {
+  cat >&2 <<'MSG'
+The account running this script needs these IAM permissions on the project:
+
+  - storage.buckets.create               (creates the Terraform state bucket)
+  - storage.objects.create               (writes Terraform state objects + lockfile)
+  - storage.objects.delete               (releases the lockfile, manages state versions)
+  - serviceusage.services.enable         (enables the bootstrap APIs)
+  - iam.serviceAccounts.create           (creates the porter-manager-* service account)
+  - iam.workloadIdentityPools.create     (creates the federation pool and provider)
+  - resourcemanager.projects.setIamPolicy (grants bootstrap roles to porter-manager-*)
+
+roles/owner covers all of these. Otherwise, the project owner can grant
+them à la carte, or grant this convenience set which collectively covers
+the list:
+
+  roles/storage.admin
+  roles/serviceusage.serviceUsageAdmin
+  roles/iam.serviceAccountAdmin
+  roles/iam.workloadIdentityPoolAdmin
+  roles/resourcemanager.projectIamAdmin
+
+MSG
+}
+
+on_failure() {
+  local exit_code=$?
+
+  cat >&2 <<MSG
+
+================================================================
+Bootstrap failed (exit ${exit_code}).
+================================================================
+
+MSG
+
+  # Best-effort: extract the specific permission GCP rejected. GCP uses two
+  # phrasings: "Permission 'xxx.yyy.zzz' denied" (most APIs) and "Required
+  # 'xxx.yyy.zzz' permission" (Compute and a few others). Grep both.
+  if [[ -f ${err_log} ]]; then
+    local denied
+    denied=$(grep -oE "Permission '[a-zA-Z0-9._-]+' denied|Required '[a-zA-Z0-9._-]+' permission" "${err_log}" | head -1 || true)
+    if [[ -n ${denied} ]]; then
+      cat >&2 <<MSG
+GCP reported: ${denied}
+
+The account you are running this script as is missing that permission on
+the project. Ask a project owner to grant it (or grant a role that includes
+it — see the full list below).
+
+MSG
+    fi
+  fi
+
+  print_required_permissions
+
+  cat >&2 <<'MSG'
+Bootstrap is idempotent: once permissions are fixed, re-run this script
+and it will resume from existing state.
+
+MSG
+
+  exit "${exit_code}"
+}
+
+# ERR trap is installed inside main(), AFTER require_env/require_tool, so a
+# missing env var or tool surfaces its own targeted message instead of being
+# misdiagnosed as an IAM permission problem.
 
 require_tool() {
   local tool=$1
@@ -202,6 +301,11 @@ main() {
   require_tool "${TF_BIN:-terraform}"
   require_tool curl
   require_tool jq
+
+  # Install ERR trap only after the prereq checks pass — anything that
+  # fails from here on is an actual GCP-side problem that benefits from
+  # the IAM-permission diagnostic.
+  trap on_failure ERR
 
   fetch_details
 
