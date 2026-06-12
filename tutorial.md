@@ -37,8 +37,8 @@ this tutorial creates in your project. The summary:
   server-side.
 - **Service account** `porter-manager-<project>-<suffix>` with the
   bootstrap IAM roles needed to provision the rest of Porter's setup:
-  `serviceUsageAdmin`, `projectIamAdmin`, and `serviceAccountAdmin`.
-  Porter grants the heavier per-service roles itself afterward.
+  `serviceUsageAdmin`, `projectIamAdmin`, `serviceAccountAdmin`, and
+  `roleAdmin`. Porter grants the heavier per-service roles itself afterward.
 - **Workload Identity Pool** `porter-pool-<project>-<suffix>` with an AWS
   provider that trusts *only* Porter's cluster control plane role for
   *only your tenant*.
