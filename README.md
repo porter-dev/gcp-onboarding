@@ -22,8 +22,8 @@ In the GCP project you supply, `main.tf` creates:
 - **A `porter-manager-<project>-<suffix>` service account** — the identity
   Porter impersonates. Has no key.
 - **Bootstrap IAM bindings** on that SA: `serviceUsageAdmin`,
-  `projectIamAdmin`, and `serviceAccountAdmin`. Just enough to enable the
-  remaining APIs and grant the heavier roles itself, post-federation.
+  `projectIamAdmin`, `serviceAccountAdmin`, and `roleAdmin`. Just enough
+  to enable the remaining APIs and grant the heavier roles itself, post-federation.
 - **A `porter-pool-<project>-<suffix>` Workload Identity Pool** — the
   federation surface that converts AWS credentials into GCP credentials.
 - **An AWS provider on the pool** that trusts *only* Porter's cluster

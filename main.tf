@@ -12,15 +12,18 @@ locals {
   ]
 
   # Bootstrap roles only. These give porter-manager just enough authority
-  # to enable the remaining APIs and grant itself the heavier roles
-  # (compute.admin, container.admin, artifactregistry.admin, etc.) from
-  # Porter's backend post-onboarding. Mirrors the AWS pattern where the
-  # CloudFormation stack creates a single porter-access-manager role and
-  # Porter's CCP creates everything else.
+  # to enable the remaining APIs, grant itself the heavier roles
+  # (compute.admin, container.admin, artifactregistry.admin, etc.) or —
+  # when custom-role enforcement is on — create the least-privilege
+  # porterManager custom role (roleAdmin), from Porter's backend
+  # post-onboarding. Mirrors the AWS pattern where the CloudFormation
+  # stack creates a single porter-access-manager role and Porter's CCP
+  # creates everything else.
   bootstrap_roles = [
     "roles/serviceusage.serviceUsageAdmin",
     "roles/resourcemanager.projectIamAdmin",
     "roles/iam.serviceAccountAdmin",
+    "roles/iam.roleAdmin",
   ]
 
   # Resource names are stable per cloud_account_id: the suffix is derived
