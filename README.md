@@ -47,7 +47,7 @@ siblings of any prior teardown.
 Every resource's `description` field is stamped with the full Porter
 ownership tuple:
 
-```
+```text
 managed-by=porter
 porter-project-id=<id>
 porter-cloud-account-id=<uuid>

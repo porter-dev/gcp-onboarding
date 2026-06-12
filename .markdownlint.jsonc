@@ -1,0 +1,6 @@
+{
+  // Default line length is 80 chars.
+  "MD013": {
+    "line_length": 120
+  }
+}

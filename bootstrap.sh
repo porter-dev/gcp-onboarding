@@ -36,13 +36,15 @@
 #
 set -euo pipefail
 
-readonly script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+readonly script_dir
 
 # err_log captures stderr from every command in this script. on_failure
 # greps it for the specific GCP permission that was denied (when one was)
 # so the customer sees the exact missing permission, not just a generic
 # "ask for owner" message.
-readonly err_log=$(mktemp -t porter-bootstrap-err.XXXXXX)
+err_log=$(mktemp -t porter-bootstrap-err.XXXXXX)
+readonly err_log
 trap 'rm -f "${err_log}"' EXIT
 exec 2> >(tee -a "${err_log}" >&2)
 
