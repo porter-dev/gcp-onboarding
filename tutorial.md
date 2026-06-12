@@ -1,3 +1,5 @@
+<!-- markdownlint-disable MD033 -- Cloud Shell walkthrough directives are HTML elements -->
+
 # Connect Google Cloud to Porter
 
 <walkthrough-disable-features toc></walkthrough-disable-features>
