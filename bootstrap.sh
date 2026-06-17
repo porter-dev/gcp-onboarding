@@ -134,6 +134,46 @@ require_env() {
   fi
 }
 
+# Cloud Shell no longer ships Terraform: in its place is a stub that prints
+# install instructions to stdout and exits 0. That defeats command -v and
+# set -e, so terraform_is_real runs `terraform version` and confirms the real
+# version banner rather than trusting the command to merely exist.
+terraform_is_real() {
+  "${TF_BIN:-terraform}" version 2>/dev/null | grep -q '^Terraform v'
+}
+
+install_terraform() {
+  if ! command -v apt-get >/dev/null 2>&1; then
+    echo "error: terraform is not installed and automatic install requires apt" >&2
+    echo "  install it manually: https://developer.hashicorp.com/terraform/install" >&2
+    exit 2
+  fi
+
+  echo "Terraform not found (Cloud Shell ships a stub, not the real binary). Installing..." >&2
+
+  wget -O - https://apt.releases.hashicorp.com/gpg | sudo gpg --dearmor --yes -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
+  echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(grep -oP '(?<=UBUNTU_CODENAME=).*' /etc/os-release || lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/hashicorp.list
+  sudo apt-get update && sudo apt-get install -y terraform
+
+  # The stub may be a shell function shadowing the new binary, and bash caches
+  # command lookups — drop both so the freshly installed terraform is used.
+  unset -f terraform 2>/dev/null || true
+  hash -r
+}
+
+ensure_terraform() {
+  if terraform_is_real; then
+    return
+  fi
+
+  install_terraform
+
+  if ! terraform_is_real; then
+    echo "error: terraform install did not produce a working 'terraform' binary" >&2
+    exit 2
+  fi
+}
+
 fetch_details() {
   local url="${PORTER_API_URL%/}/api/v2/clouds/gcp/${PORTER_CLOUD_ACCOUNT_ID}/details"
   local payload
@@ -225,8 +265,20 @@ notify_porter() {
   wif_provider=$("${TF_BIN:-terraform}" output -raw workload_identity_provider)
   popd >/dev/null
 
-  if [[ -z $sa_email || -z $wif_provider ]]; then
-    echo "error: terraform outputs missing service_account_email or workload_identity_provider" >&2
+  # Validate the shape of both outputs before notifying Porter. A non-empty
+  # check is not enough: a broken terraform (e.g. the Cloud Shell stub) can
+  # emit non-empty garbage, and POSTing that to the callback poisons the
+  # gcp_workload_identities row with values that point at nothing. Refuse to
+  # call the callback unless the outputs are well-formed.
+  if [[ ! $sa_email =~ ^[a-z0-9-]+@[a-z0-9-]+\.iam\.gserviceaccount\.com$ ]]; then
+    echo "error: service_account_email output is not a valid GCP service account email: '${sa_email}'" >&2
+    echo "  terraform did not provision correctly — Porter was NOT notified." >&2
+    exit 5
+  fi
+
+  if [[ ! $wif_provider =~ ^projects/[0-9]+/locations/global/workloadIdentityPools/.+/providers/.+$ ]]; then
+    echo "error: workload_identity_provider output is not a valid WIF provider resource name: '${wif_provider}'" >&2
+    echo "  terraform did not provision correctly — Porter was NOT notified." >&2
     exit 5
   fi
 
@@ -300,9 +352,12 @@ main() {
   require_env PORTER_VERIFICATION_TOKEN
 
   require_tool gcloud
-  require_tool "${TF_BIN:-terraform}"
   require_tool curl
   require_tool jq
+
+  # ensure_terraform must run a real version check (not require_tool): Cloud
+  # Shell's terraform stub satisfies command -v but provisions nothing.
+  ensure_terraform
 
   # Install ERR trap only after the prereq checks pass — anything that
   # fails from here on is an actual GCP-side problem that benefits from
