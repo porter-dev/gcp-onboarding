@@ -265,8 +265,20 @@ notify_porter() {
   wif_provider=$("${TF_BIN:-terraform}" output -raw workload_identity_provider)
   popd >/dev/null
 
-  if [[ -z $sa_email || -z $wif_provider ]]; then
-    echo "error: terraform outputs missing service_account_email or workload_identity_provider" >&2
+  # Validate the shape of both outputs before notifying Porter. A non-empty
+  # check is not enough: a broken terraform (e.g. the Cloud Shell stub) can
+  # emit non-empty garbage, and POSTing that to the callback poisons the
+  # gcp_workload_identities row with values that point at nothing. Refuse to
+  # call the callback unless the outputs are well-formed.
+  if [[ ! $sa_email =~ ^[a-z0-9-]+@[a-z0-9-]+\.iam\.gserviceaccount\.com$ ]]; then
+    echo "error: service_account_email output is not a valid GCP service account email: '${sa_email}'" >&2
+    echo "  terraform did not provision correctly — Porter was NOT notified." >&2
+    exit 5
+  fi
+
+  if [[ ! $wif_provider =~ ^projects/[0-9]+/locations/global/workloadIdentityPools/.+/providers/.+$ ]]; then
+    echo "error: workload_identity_provider output is not a valid WIF provider resource name: '${wif_provider}'" >&2
+    echo "  terraform did not provision correctly — Porter was NOT notified." >&2
     exit 5
   fi
 
