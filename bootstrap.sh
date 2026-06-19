@@ -174,6 +174,18 @@ ensure_terraform() {
   fi
 }
 
+# By default, Terraform reaches GCS and the Google API through its own Go
+# credential chain, NOT gcloud. So we mint a static OAuth token with gcloud
+# and pass it to Terraform by setting GOOGLE_OAUTH_ACCESS_TOKEN, which both 
+# the GCS backend and the google provider honor. The token is valid ~1h.
+ensure_terraform_credentials() {
+  if [[ -n ${GOOGLE_OAUTH_ACCESS_TOKEN:-} ]]; then
+    return
+  fi
+  GOOGLE_OAUTH_ACCESS_TOKEN=$(gcloud auth print-access-token)
+  export GOOGLE_OAUTH_ACCESS_TOKEN
+}
+
 fetch_details() {
   local url="${PORTER_API_URL%/}/api/v2/clouds/gcp/${PORTER_CLOUD_ACCOUNT_ID}/details"
   local payload
@@ -372,6 +384,7 @@ main() {
   local prefix="gcp-onboarding/${cloud_account_id_lc}"
 
   ensure_state_bucket "${bucket}"
+  ensure_terraform_credentials
   run_terraform "${bucket}" "${prefix}"
   notify_porter
   print_done
