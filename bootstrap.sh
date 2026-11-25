@@ -191,8 +191,18 @@ fetch_details() {
   local payload
   payload=$(printf '{"verification_token":"%s"}' "${PORTER_VERIFICATION_TOKEN}")
 
-  local response
-  response=$(curl -sSf -X POST -H 'Content-Type: application/json' -d "${payload}" "${url}")
+  local response_file response status
+  response_file=$(mktemp)
+  status=$(curl -sS -o "${response_file}" -w '%{http_code}' \
+    -X POST -H 'Content-Type: application/json' -d "${payload}" "${url}") || true
+  response=$(cat "${response_file}")
+  rm -f "${response_file}"
+
+  if [[ $status != "200" ]]; then
+    echo "error: Porter rejected the setup command (HTTP ${status}): ${response}" >&2
+    echo "  copy a fresh command from the Porter dashboard (Try again); commands expire after 30 minutes" >&2
+    exit 3
+  fi
 
   porter_project_id=$(jq -r '.porter_project_id' <<<"${response}")
   gcp_project_id=$(jq -r '.gcp_project_id' <<<"${response}")
@@ -366,6 +376,11 @@ main() {
   require_tool gcloud
   require_tool curl
   require_tool jq
+
+  if ! gcloud auth print-access-token >/dev/null; then
+    echo "error: gcloud has no credentials. Re-run and click \"Authorize\" when Cloud Shell asks (outside Cloud Shell: gcloud auth login)." >&2
+    exit 1
+  fi
 
   # ensure_terraform must run a real version check (not require_tool): Cloud
   # Shell's terraform stub satisfies command -v but provisions nothing.
