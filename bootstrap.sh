@@ -192,7 +192,8 @@ fetch_details() {
   payload=$(printf '{"verification_token":"%s"}' "${PORTER_VERIFICATION_TOKEN}")
 
   local response
-  response=$(curl -sSf -X POST -H 'Content-Type: application/json' -d "${payload}" "${url}")
+  # No -f: an expired token's error body reaches the missing-fields check below.
+  response=$(curl -sS -X POST -H 'Content-Type: application/json' -d "${payload}" "${url}")
 
   porter_project_id=$(jq -r '.porter_project_id' <<<"${response}")
   gcp_project_id=$(jq -r '.gcp_project_id' <<<"${response}")
@@ -366,6 +367,11 @@ main() {
   require_tool gcloud
   require_tool curl
   require_tool jq
+
+  if ! gcloud auth print-access-token >/dev/null; then
+    echo "error: gcloud has no credentials; click \"Authorize\" in Cloud Shell or run 'gcloud auth login', then re-run" >&2
+    exit 1
+  fi
 
   # ensure_terraform must run a real version check (not require_tool): Cloud
   # Shell's terraform stub satisfies command -v but provisions nothing.
